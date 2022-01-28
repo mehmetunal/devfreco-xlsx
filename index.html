@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/x-data-spreadsheet/dist/xspreadsheet.css" />
+</head>
+
+<body>
+    <button onclick="save()">OKKKK</button>
+    <div id="htmlout"></div>
+    <br />
+    <script src="https://unpkg.com/x-data-spreadsheet/dist/xspreadsheet.js"></script>
+
+    <script type="text/javascript" src="./js/xlsx.core.min.js"></script>
+    <script type="text/javascript" src="./js/test.js"></script>
+    <script type="text/javascript" src="./js/Blob.js"></script>
+    <script type="text/javascript" src="./js/FileSaver.js"></script>
+
+    <script>
+        var HTMLOUT = document.getElementById('htmlout');
+        var xspr = x_spreadsheet(HTMLOUT);
+
+        function datenum(v, date1904) {
+            if (date1904) v += 1462;
+            var epoch = Date.parse(v);
+            return (epoch - new Date(Date.UTC(1899, 11, 30))) / (24 * 60 * 60 * 1000);
+        }
+
+        function sheet_from_array_of_arrays(data, opts) {
+            var ws = {};
+            var range = { s: { c: 10000000, r: 10000000 }, e: { c: 0, r: 0 } };
+            //rows
+            for (var R = 0; R != data.length; ++R) {
+                //rows in cell
+                for (var C = 0; C != data[R].length; ++C) {
+                    if (range.s.r > R) range.s.r = R;
+                    if (range.s.c > C) range.s.c = C;
+                    if (range.e.r < R) range.e.r = R;
+                    if (range.e.c < C) range.e.c = C;
+                    var cell = { v: data[R][C] };
+                    if (cell.v == null) continue;
+                    var cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+
+                    if (typeof cell.v === 'number') cell.t = 'n';
+                    else if (typeof cell.v === 'boolean') cell.t = 'b';
+                    else if (cell.v instanceof Date) {
+                        cell.t = 'n'; cell.z = XLSX.SSF._table[14];
+                        cell.v = datenum(cell.v);
+                    }
+                    else cell.t = 's';
+
+                    if (C == 0) {
+                        cell.s = {
+                            font: {
+                                bold: true,
+                                color: { rgb: "fe0000" }
+                            },
+                        }
+                    }
+                    if (R == 0) {
+                        cell.s = {
+                            fill: {
+                                fgColor: { rgb: "FFFFAA00" }
+                            }
+                        }
+                    }
+
+                    ws[cell_ref] = cell;
+                }
+            }
+            if (range.s.c < 10000000) ws['!ref'] = XLSX.utils.encode_range(range);
+            return ws;
+        }
+        function sheet_from_array_of_arrays2(xws, opts) {
+            var ws = {};
+            var rowobj = xws.rows;
+            var stylesobj = xws.styles;
+
+            for (var ri = 0; ri < rowobj.len; ++ri) {
+                var row = rowobj[ri];
+
+                if (!row) continue;
+
+                var minCoord, maxCoord;
+                var cells = Object.keys(row.cells);
+                for (var c = 0; c != cells.length; c++) {
+                    var k = cells[c];
+                    var idx = +k;
+                    if (isNaN(idx)) return;
+
+                    var lastRef = XLSX.utils.encode_cell({ r: ri, c: idx });
+                    if (minCoord == null) {
+                        minCoord = { r: ri, c: idx };
+                    } else {
+                        if (ri < minCoord.r) minCoord.r = ri;
+                        if (idx < minCoord.c) minCoord.c = idx;
+                    }
+                    if (maxCoord == undefined) {
+                        maxCoord = { r: ri, c: idx };
+                    } else {
+                        if (ri > maxCoord.r) maxCoord.r = ri;
+                        if (idx > maxCoord.c) maxCoord.c = idx;
+                    }
+
+                    var cellText = row.cells[k].text,
+                        type = "s";
+                    if (!cellText) {
+                        cellText = "";
+                        type = "z";
+                    } else if (!isNaN(parseFloat(cellText))) {
+                        cellText = parseFloat(cellText);
+                        type = "n";
+                    } else if (
+                        cellText.toLowerCase() === "true" ||
+                        cellText.toLowerCase() === "false"
+                    ) {
+                        cellText = Boolean(cellText);
+                        type = "b";
+                    }
+
+                    var cellStyle = parse_style(stylesobj[row.cells[k].style]);
+
+                    ws[lastRef] = {
+                        v: cellText,
+                        t: type,
+                        s: cellStyle,
+                    };
+
+                    if (type == "s" && cellText[0] == "=") {
+                        ws[lastRef].f = cellText.slice(1);
+                    }
+
+                    debugger;
+
+                    if (row.cells[k].merge != null) {
+                        if (ws["!merges"] == null) ws["!merges"] = [];
+
+                        ws["!merges"].push({
+                            s: { r: ri, c: idx },
+                            e: {
+                                r: ri + row.cells[k].merge[0],
+                                c: idx + row.cells[k].merge[1],
+                            },
+                        });
+                    }
+                }
+
+                ws["!ref"] = XLSX.utils.encode_range({
+                    s: { r: minCoord.r, c: minCoord.c },
+                    e: { r: maxCoord.r, c: maxCoord.c },
+                });
+            }
+            return ws;
+            // var ws = {};
+            // var range = { s: { c: 10000000, r: 10000000 }, e: { c: 0, r: 0 } };
+            // //rows
+            // for (var R = 0; R != data.length; ++R) {
+            //     //rows in cell
+            //     for (var C = 0; C != data[R].length; ++C) {
+            //         if (range.s.r > R) range.s.r = R;
+            //         if (range.s.c > C) range.s.c = C;
+            //         if (range.e.r < R) range.e.r = R;
+            //         if (range.e.c < C) range.e.c = C;
+            //         var cell = { v: data[R][C] };
+            //         if (cell.v == null) continue;
+            //         var cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+
+            //         if (typeof cell.v === 'number') cell.t = 'n';
+            //         else if (typeof cell.v === 'boolean') cell.t = 'b';
+            //         else if (cell.v instanceof Date) {
+            //             cell.t = 'n'; cell.z = XLSX.SSF._table[14];
+            //             cell.v = datenum(cell.v);
+            //         }
+            //         else cell.t = 's';
+
+            //         if (C == 0) {
+            //             cell.s = {
+            //                 font: {
+            //                     bold: true
+            //                 }
+            //             }
+            //         }
+            //         if (R == 0) {
+            //             cell.s = {
+            //                 fill: {
+            //                     fgColor: { rgb: "FFFFAA00" }
+            //                 }
+            //             }
+            //         }
+
+            //         ws[cell_ref] = cell;
+            //     }
+            // }
+            // if (range.s.c < 10000000) ws['!ref'] = XLSX.utils.encode_range(range);
+            // return ws;
+        }
+
+        function Workbook() {
+            if (!(this instanceof Workbook)) return new Workbook();
+            this.SheetNames = [];
+            this.Sheets = {};
+        }
+
+        function s2ab(s) {
+            var buf = new ArrayBuffer(s.length);
+            var view = new Uint8Array(buf);
+            for (var i = 0; i != s.length; ++i) view[i] = s.charCodeAt(i) & 0xFF;
+            return buf;
+        }
+
+        function save() {
+            var wb = new Workbook()
+            var sheetdatas = xspr.getData();
+            // var sheetdatas = [{ "name": "sheet1", "freeze": "A1", "styles": [{ "bgcolor": "#fe0000" }, { "bgcolor": "#fe0000", "color": "#ffff01" }, { "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] } }, { "bgcolor": "#fe0000", "color": "#f2f2f2" }, { "font": { "bold": true } }], "merges": [], "rows": { "1": { "cells": { "0": { "text": "asd", "style": 2 } } }, "2": { "cells": { "2": { "text": "asd", "style": 3 } } }, "3": { "cells": { "8": { "text": "asd" } } }, "5": { "cells": { "3": { "text": "ad" } } }, "7": { "cells": { "6": { "text": "ad" } } }, "9": { "cells": { "1": { "text": "ad", "style": 4 } } }, "10": { "cells": { "3": { "text": "ad" } } }, "13": { "cells": { "7": { "text": "ad" } } }, "21": { "cells": { "5": { "text": "ad" } } }, "len": 100 }, "cols": { "len": 26 }, "validations": [], "autofilter": {} }, { "name": "sheet2", "freeze": "A1", "styles": [{ "strike": true }, { "underline": true }, { "font": { "italic": true } }], "merges": [], "rows": { "2": { "cells": { "2": { "text": "ad" } } }, "3": { "cells": { "4": { "text": "sa", "style": 0 } } }, "4": { "cells": { "0": { "text": "a" } } }, "5": { "cells": { "3": { "text": "a" }, "5": { "text": "a", "style": 2 }, "6": { "text": "ad", "style": 1 } } }, "6": { "cells": { "10": { "text": "a" } } }, "7": { "cells": { "1": { "text": "a" } } }, "9": { "cells": { "3": { "text": "a" } } }, "10": { "cells": { "5": { "text": "s" }, "9": { "text": "asa" } } }, "14": { "cells": { "3": { "text": "a" } } }, "len": 100 }, "cols": { "len": 26 }, "validations": [], "autofilter": {} }];
+            // var sheetdatas = [{ "name": "sheet1", "freeze": "A1", "styles": [{ "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] } }, { "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] }, "bgcolor": "#fe0000" }, { "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] }, "bgcolor": "#fe0000", "color": "#ffffff" }, { "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] }, "bgcolor": "#fe0000", "color": "#ffffff", "align": "center" }, { "border": { "bottom": ["thin", "#000"], "top": ["thin", "#000"], "left": ["thin", "#000"], "right": ["thin", "#000"] }, "bgcolor": "#fe0000", "color": "#ffffff", "align": "center", "font": { "bold": true } }], "merges": [], "rows": { "3": { "cells": { "3": { "text": "a", "style": 4 } } }, "len": 100 }, "cols": { "len": 26 }, "validations": [], "autofilter": {} }];
+            for (var i = 0; i != sheetdatas.length; i++) {
+                var sheetData = sheetdatas[i];
+                var ws_name = sheetData.name;
+                wb.SheetNames.push(ws_name);
+                var ws = sheet_from_array_of_arrays2(sheetData);
+                wb.Sheets[ws_name] = ws
+            }
+            var wbout = XLSX.write(wb, { bookType: 'xlsx', bookSST: true, type: 'binary' });
+            saveAs(new Blob([s2ab(wbout)], { type: "application/octet-stream" }), "sample.xlsx")
+
+            /* original data */
+            // var data = [[1, 2, 3, 4], ["Sample", "Sample", "Sample", "Sample"], ["foo", "bar", "Hello", "0.3"], ["baz", null, "qux"]]
+            // var ws_name = "SheetJS";
+
+            // var wb = new Workbook(), ws = sheet_from_array_of_arrays(data);
+
+            // wb.SheetNames.push(ws_name);
+            // console.log(ws);
+            // console.log(JSON.stringify(ws));
+            // wb.Sheets[ws_name] = ws;
+
+            // var wbout = XLSX.write(wb, { bookType: 'xlsx', bookSST: true, type: 'binary' });
+            // console.log(JSON.stringify(wbout))
+            // saveAs(new Blob([s2ab(wbout)], { type: "application/octet-stream" }), "sample.xlsx")
+        }
+
+
+        function parse_style(styles) {
+            var a = {
+                font: {
+                    bold: true,
+                    italic: true,
+                    size: 15,
+                    name: "Source Sans Pro"
+                },
+                strike: true,
+                format: "text",
+                underline: true,
+                color: "#fe0000",
+                bgcolor: "#fdc101",
+                border: {
+                    bottom: ["thin", "#000"],
+                    top: ["thin", "#000"],
+                    left: ["thin", "#000"],
+                    right: ["thin", "#000"]
+                },
+                align: "center",
+                valign: "middle"
+            };
+            debugger;
+
+            var p_fill = parse_fill(styles);
+            var p_font = parse_font(styles);
+            var p_numFmt = parse_numFmt(styles);
+            var p_alignment = parse_alignment(styles);
+            var p_border = parse_border(styles);
+            var style = {
+                fill: p_fill,
+                font: p_font,
+                numFmt: p_numFmt,
+                alignment: p_alignment,
+                border: p_border
+            };
+            console.log(style);
+            return style;
+            function parse_fill(styles) {
+                var obj = {};
+                var keys = ["patternType", "fgColor", "bgColor"];
+                for (var i = 0; i != keys.length; i++) {
+                    var b = Object.assign(styles)[keys[i].toLowerCase()]
+                    if (b) {
+                        if (keys[i].toLowerCase() == "bgcolor" || keys[i].toLowerCase() == "fgcolor")
+                            obj["fgColor"] = { rgb: b.replace("#", "") };
+                        else
+                            obj[keys[i]] = b;
+                    }
+                }
+                return obj;
+            }
+            function parse_font(styles) {
+                var obj = {};
+                var styls = Object.assign(styles)
+
+                obj = {
+                    ...parse_color(styls),
+                    ...parse_font_sz(styls),
+                    ...parse_key(styls, "strike"),
+                    ...parse_key(styls, "underline"),
+                    ...parse_key(styls, "outline"),
+                    ...parse_key(styls, "shadow"),
+                };
+
+                return obj;
+
+                function parse_color(s) {
+                    var obj = {};
+                    var b = s["color"]
+                    if (b) {
+                        obj["color"] = { rgb: b.replace("#", "") };
+                    }
+                    return obj;
+                }
+                function parse_key(s, key) {
+                    var obj = {};
+                    var b = s[key]
+                    if (b) {
+                        obj[key] = b;
+                    }
+                    return obj;
+                }
+                function parse_font_sz(s) {
+                    if (s["font"]) {
+                        const regex = /size/ig;
+                        return JSON.parse(JSON.stringify(s["font"]).replaceAll(regex, 'sz'));
+                    }
+                    return;
+                }
+            }
+
+            function parse_numFmt(s) {
+
+            }
+
+            function parse_alignment(s) {
+                var obj = {};
+                if (s["align"])
+                    obj["horizontal"] = s["align"];
+
+                if (s["valign"])
+                    obj["vertical"] = s["valign"];
+
+                return obj;
+            }
+
+            function parse_border(s) {
+                var obj = {};
+                var bObj = s["border"]
+                if(!bObj) return;
+                obj["bottom"] = parse_border_style(bObj, "bottom");
+                obj["top"] = parse_border_style(bObj, "top");
+                obj["left"] = parse_border_style(bObj, "left");
+                obj["right"] = parse_border_style(bObj, "right");
+
+                function parse_border_style(bObj, key) {
+                    if (bObj[key]) {
+                        if (bObj[key].length == 2) {
+                            return { style: bObj[key][0], color: { rgb: bObj[key][1].replace("#", "") } }
+                        }
+                    }
+                    return;
+                }
+
+                return obj;
+            }
+
+
+            return s;
+        }
+
+
+    </script>
+
+</body>
+
+</html>
